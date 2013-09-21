@@ -1,5 +1,6 @@
 {
   "name" : "orlissenberg/leaguepress",
+  "type": "wordpress-plugin",
   "require" : {
   }
 }
