@@ -1,0 +1,1 @@
+var resourcePath = '/wordpress/wp-content/plugins/leaguepress/';

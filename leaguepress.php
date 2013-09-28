@@ -12,6 +12,10 @@ License: MIT
 
 namespace LeaguePress;
 
+include_once(dirname(__FILE__)."/library/libChampion.php");
+include_once(dirname(__FILE__)."/library/libRune.php");
+include_once(dirname(__FILE__)."/library/libMastery.php");
+
 class Request
 {
     public function __construct()
@@ -31,6 +35,10 @@ class Request
                 break;
         }
 
+        if (isset($_GET['id'])) {
+            $this->id = absint($_GET['id']);
+        }
+
         $this->raw = @file_get_contents('php://input');
         if (is_string($this->raw) && ($this->isPost || $this->isPut)) {
             $obj = json_decode($this->raw, true);
@@ -38,7 +46,12 @@ class Request
                 // clear the invalid data.
                 $this->raw = null;
             } else {
-                $this->build = json_encode($obj['build']);
+                $this->decoded = $obj;
+                $this->build = json_encode($obj);
+
+                if (isset($obj['id'])) {
+                    $this->id = absint($obj['id']);
+                }
             }
         }
 
@@ -59,6 +72,7 @@ class Request
 
     protected $raw;
     public $build;
+    public $decoded;
     public $id;
     public $userId;
     public $userLogin;
@@ -101,25 +115,46 @@ class RequestRouter
 
         if (isset($_GET['leaguepress'])) {
             $request = new Request();
-            $request->id = isset($_GET['build']) ? absint($_GET['build']) : null;
         }
 
         if (isset($request)) {
-            global $wpdb;
+            header("content-type:application/json");
 
-            $result = null;
-            $controller = new RestController($request);
+            try {
+                $result = null;
+                $controller = new RestController($request);
 
-            if ($request->isPost && !empty($request->build)) {
-                $result = $controller->post($request->build);
+                // POST/PUT
+                if (($request->isPost || $request->isPut) && !empty($request->build)) {
+                    // with id
+                    if (!empty($request->id)) {
+                        $result = $controller->put($request->id, $request->build, $request->decoded->title, $request->decoded->description);
+                    } // without id
+                    else {
+                        $result = $controller->post($request->build, $request->decoded->title, $request->decoded->description);
+                    }
+                    echo json_encode($result);
+                }
+
+                // GET
+                if ($request->isGet) {
+                    if (!empty($request->id)) {
+                        echo json_encode($controller->get($request->id));
+                    } else {
+                        echo json_encode($controller->getList());
+                    }
+                }
+
+                // DELETE
+                if ($request->isDelete) {
+                    echo json_encode($controller->delete($_GET['id']));
+                }
+
+            } catch (\Exception $e) {
+                echo json_encode("error");
+                exit;
             }
 
-            echo json_encode(
-                array(
-                    "result" => $result,
-                    "request" => $request
-                )
-            );
             exit;
         }
     }
@@ -134,43 +169,108 @@ class RestController
         $this->request = $request;
     }
 
+    public function auth()
+    {
+        // auth check
+        if (!is_user_logged_in()) {
+            throw new \Exception("Permission denied!");
+        }
+    }
+
     function getList()
     {
+        /** @var \wpdb $wpdb */
+        global $wpdb;
 
+        $user = wp_get_current_user();
+        $r = $wpdb->query("select * from wp_leaguepress where user_id = " . mysql_real_escape_string($user->id) . ' limit 0, 10');
+        $result = $wpdb->last_result;
+
+        $list = array();
+        foreach ($result as $row) {
+            $buildData = json_decode($row->build);
+            $buildData->id = $row->id;
+
+            array_push($list, $buildData);
+        }
+
+        return $list;
     }
 
     // fetch item
     function get($id)
     {
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        $user = wp_get_current_user();
+        $r = $wpdb->query("select * from wp_leaguepress where id = " . mysql_real_escape_string($id) . ' limit 0, 1');
+        $result = $wpdb->last_result;
+
+        if (is_array($result) && count($result) > 0) {
+            $buildData = json_decode($result[0]->build);
+            $buildData->id = $result[0]->id;
+            return $buildData;
+        }
+
+        return null;
     }
 
     // create or update
-    function put($id, $data)
+    function put($id, $data, $title, $description)
     {
+        $this->auth();
 
-    }
-
-    // create new
-    function post($data)
-    {
+        /** @var \wpdb $wpdb */
         global $wpdb;
 
-        $data = array(
+        $tableData = array(
             "unix_timestamp" => time(),
             "user_id" => $this->request->userLogin === false ? null : $this->request->userId,
             "user_login" => $this->request->userLogin === false ? null : $this->request->userLogin,
-            "build" => $data
+            "build" => $data,
+            "title" => $title,
+            "description" => $description
+        );
+
+        $user = wp_get_current_user();
+        $result = $wpdb->update(WordPressPlugin::getTableName(), $tableData, array('ID' => $id, 'user_id' => $user->id));
+
+        return $result;
+    }
+
+    // create new
+    function post($data, $title, $description)
+    {
+        $this->auth();
+
+        global $wpdb;
+
+        $tableData = array(
+            "unix_timestamp" => time(),
+            "user_id" => $this->request->userLogin === false ? null : $this->request->userId,
+            "user_login" => $this->request->userLogin === false ? null : $this->request->userLogin,
+            "build" => $data,
+            "title" => $title,
+            "description" => $description
         );
 
         /** @var \wpdb $wpdb */
-        $result = $wpdb->insert(WordPressPlugin::getTableName(), $data);
+        $result = $wpdb->insert(WordPressPlugin::getTableName(), $tableData);
 
         return $result !== false ? $wpdb->insert_id : $result;
     }
 
     function delete($id)
     {
+        $this->auth();
 
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        $user = wp_get_current_user();
+        $r = $wpdb->delete(WordPressPlugin::getTableName(), array('ID' => absint($id), 'user_id' => $user->id));
+        return $r;
     }
 }
 
@@ -181,6 +281,11 @@ class WordPressPlugin
 {
     const lp_db_version = "1.0";
     const lp_db_tablename = "leaguepress";
+
+    static function toCssCode($string)
+    {
+        return str_replace('_', '-', $string);
+    }
 
     static function getTableName()
     {
@@ -201,6 +306,8 @@ class WordPressPlugin
                 user_id BIGINT UNSIGNED,
                 user_login VARCHAR(60),
                 build MEDIUMTEXT NOT NULL,
+                title VARCHAR(500),
+                description MEDIUMTEXT NOT NULL,
             UNIQUE KEY id (id),
             FOREIGN KEY (user_id)
                 REFERENCES $users_table_name(id)
@@ -219,18 +326,20 @@ class WordPressPlugin
     function leaguepressscripts_method()
     {
         wp_register_script('handlebars', plugins_url('/javascript/handlebars.min.js', __FILE__));
-        wp_register_script('leaguepress-bootstrap', plugins_url('/javascript/leaguepress.bootstrap.js', __FILE__));
+        wp_register_script('leaguepress-config', plugins_url('/javascript/leaguepress.config.js', __FILE__));
         wp_register_script('leaguepress-handlebars', plugins_url('/javascript/leaguepress.handlebars.js', __FILE__));
         wp_register_script('leaguepress', plugins_url('/javascript/leaguepress.min.js', __FILE__));
+        wp_register_script('leaguepress-bootstrap', plugins_url('/javascript/leaguepress.bootstrap.js', __FILE__));
 
         wp_enqueue_script('jquery');
         wp_enqueue_script('jquery-ui-core');
         wp_enqueue_script('jquery-ui-widget');
         wp_enqueue_script('jquery-ui-draggable');
         wp_enqueue_script('handlebars');
-        wp_enqueue_script("leaguepress-bootstrap");
+        wp_enqueue_script("leaguepress-config");
         wp_enqueue_script("leaguepress-handlebars");
         wp_enqueue_script('leaguepress');
+        wp_enqueue_script("leaguepress-bootstrap");
 
         wp_register_style('leaguepress-style', plugins_url('/css/default/leaguepress.css', __FILE__));
         wp_enqueue_style('leaguepress-style');
@@ -241,36 +350,52 @@ class WordPressPlugin
         $code = $atts['code'];
 
         return sprintf(
-            '<div style="display: inline-block"
-                    data-champion-code="%s" class="champions-icon champions-%s"></div>',
+            '<div style="display: inline-block" data-champion-code="%s" class="champions-icon champions-%s"></div>',
             $code,
             $code
         );
     }
 
+    function shortLeaguePress($atts)
+    {
+        if (is_user_logged_in()) {
+            $out = "";
+            ob_start();
+            include("lp-build.php");
+            $out .= ob_get_clean();
+
+            return $out;
+        } else {
+            return "[! Not logged in !]";
+        }
+    }
+
     function shortBuild($atts)
     {
-        $code = $atts['code'];
+        $id = absint($atts['id']);
 
-        return sprintf(
-            '<div id="build">
-             <script type="text/javascript">
-                (function($){
-                    $(function(){
-                        $("#build").leaguepressbuild({});
-                    });
-                })(jQuery);
-             </script>
-            ',
-            $code,
-            $code
-        );
+        /** @var \wpdb $wpdb */
+        global $wpdb;
+
+        $user = wp_get_current_user();
+        $r = $wpdb->query("select * from wp_leaguepress where id = " . mysql_real_escape_string($id) . ' limit 0, 1');
+        $result = $wpdb->last_result;
+
+        if (is_array($result) && count($result) > 0) {
+            $build = json_decode($result[0]->build);
+            $build->id = $result[0]->id;
+
+            ob_start();
+            include("lp-champion.php");
+            echo ob_get_clean();
+        }
     }
 }
 
 
 add_shortcode('champion', array('\LeaguePress\WordPressPlugin', "shortChampion"));
-add_shortcode('leaguepressbuild', array('\LeaguePress\WordPressPlugin', "shortBuild"));
+add_shortcode('leaguepressbuild', array('\LeaguePress\WordPressPlugin', "shortLeaguePress"));
+add_shortcode('build', array('\LeaguePress\WordPressPlugin', "shortBuild"));
 
 add_action('wp_enqueue_scripts', array('\LeaguePress\WordPressPlugin', 'leaguepressscripts_method'));
 register_activation_hook(__FILE__, array('\LeaguePress\WordPressPlugin', "lp_install"));
