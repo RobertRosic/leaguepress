@@ -41,15 +41,21 @@ global $libMastery;
     ?>
 </table>
 <h3>Summoner Spells:</h3>
-<?php
+<table>
+    <tr>
+        <td>
+            <?php
 
-foreach ($build->build->summonerspells as $s) {
-    echo '<div style="margin-right:20px" data-summonerspell-index="0" data-summonerspell-code="'
-        . \LeaguePress\WordPressPlugin::toCssCode($s) . '" class="summonerspells-icon summonerspells-'
-        . \LeaguePress\WordPressPlugin::toCssCode($s) . '"></div>';
-}
+            foreach ($build->build->summonerspells as $s) {
+                echo '<div style="margin-right:20px" data-summonerspell-index="0" data-summonerspell-code="'
+                    . \LeaguePress\WordPressPlugin::toCssCode($s) . '" class="summonerspells-icon summonerspells-'
+                    . \LeaguePress\WordPressPlugin::toCssCode($s) . '"></div>';
+            }
 
-?>
+            ?>
+        </td>
+    </tr>
+</table>
 <h3>Runes:</h3>
 
 <table>
@@ -92,13 +98,13 @@ foreach ($build->build->items as $itemsets) {
 
 echo '<ul style="display:table; width:600px; list-style-type:none; padding:0; margin:0;">';
 foreach ($build->build->masteries as $mastery) {
-    echo '<li style="float:left; width:300px; height:48px;">'.
+    echo '<li style="float:left; width:300px; height:48px;">' .
         '<div style="position: relative; display: inline-block; float: left;" data-mastery-code="' . $mastery->code . '" title="' .
         $libMastery[$mastery->code]["shortName"] . '" class="masteries-icon masteries-' .
         \LeaguePress\WordPressPlugin::toCssCode($mastery->code) .
         '"></div><div style="position: relative; display: inline-block; float: left; margin-left: 10px; font-size: 0.8em;">'
-        . '('.$mastery->rank.'/'.$libMastery[$mastery->code]["maxRank"].') '. $libMastery[$mastery->code]["shortName"]
-        . ' [' . $libMastery[$mastery->code]["treeName"] .']</div></li>';
+        . '(' . $mastery->rank . '/' . $libMastery[$mastery->code]["maxRank"] . ') ' . $libMastery[$mastery->code]["shortName"]
+        . ' [' . $libMastery[$mastery->code]["treeName"] . ']</div></li>';
 }
 echo '</ul>';
 

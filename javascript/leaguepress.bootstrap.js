@@ -15,7 +15,7 @@
                                 var id = $(this).attr("data-id");
 
                                 $.ajax({
-                                    method : "DELETE",
+                                    type : "DELETE",
                                     url : "?leaguepress&id=" + id
                                 }).done(function (data) {
                                         refreshList();
@@ -51,7 +51,7 @@
             };
 
             $.ajax({
-                method : "POST",
+                type : "POST",
                 data : JSON.stringify(stringified),
                 url : "?leaguepress"
             }).done(function (data) {
